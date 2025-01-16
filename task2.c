@@ -19,20 +19,22 @@
 #define TASK_NUM (14)   //14个计算线程， 1个加载线程
 #define CONV_SIZE 3
 
+// 宏定义会导致错误，貌似编译器问题？之后再解决
+#define CIN 64
+#define COUT 1
+#define OUTHW 224
+#define IN_GROUPS 1
+#define OUTHXW 50176
+#define OUT_GROUPS 16
+// 多线程问题估计只能通过把output空间翻3倍来解决，也之后再说
 
-// #define CIN 64
-//#define 1 1
-//#define 224 224
-// #define IN_GROUPS 1
-// #define OUTHXW 50176
-// #define OUT_GROUPS 16
 
-#define CIN cin[conv_num]
-// #define 1 cout[conv_num]
-// #define 224 out_HW[conv_num]
-#define IN_GROUPS input_groups[conv_num]
-#define OUTHXW output_HXW[conv_num]
-#define OUT_GROUPS output_groups[conv_num]
+// #define CIN cin[conv_num]
+// #define COUT cout[conv_num]
+// #define OUTHW out_HW[conv_num]
+// #define IN_GROUPS input_groups[conv_num]
+// #define OUTHXW output_HXW[conv_num]
+// #define OUT_GROUPS output_groups[conv_num]
 
 
 //是否需要pooling
@@ -41,13 +43,13 @@ T pool[13] = {0,1,0,1,0,0,1,
 
 int16_t cin[13] = {3,64,64,128,128,256,256,256,512,512,512,512,512};
 T cout[13] = {64 / 1,64 / 64,128 / 32,128 / 64,256 / 32,256 / 64,256 / 64,
-              512 / 32,512 / 64,512 / 64,512 / 16,512 / 16,512 / 16};
+             512 / 32,512 / 64,512 / 64,512 / 16,512 / 16,512 / 16};
 
 //输出尺寸(=输入)
 int16_t out_HW[13] = {224, 224, 112, 112, 56, 56, 56,
                       28, 28, 28, 14, 14, 14};
 
-//224 / TASK_NUM
+//OUTHW / TASK_NUM
 T output_groups[] = {224 / TASK_NUM, 224 / TASK_NUM, 112 / TASK_NUM, 112 / TASK_NUM, 56 / TASK_NUM, 56 / TASK_NUM, 56 / TASK_NUM,
                      28 / TASK_NUM, 28 / TASK_NUM, 28 / TASK_NUM, 14 / TASK_NUM, 14 / TASK_NUM, 14 / TASK_NUM};
 
@@ -55,10 +57,8 @@ T output_groups[] = {224 / TASK_NUM, 224 / TASK_NUM, 112 / TASK_NUM, 112 / TASK_
 //单个缓冲区每次加载的input组数（每层）
 T input_groups[13] = {0,2 - 1,3 - 1,11 - 1,17 - 1,25 - 1,25 - 1,16 - 1,24 - 1,24 - 1,0,0,0};
 
-int input_HXW[13] = {224 * 226, 224 * 226, 112 * 114, 112 * 114, 56 * 58, 56 * 58, 56 * 58,
-                     28 * 30, 28 * 30, 28 * 30, 14 * 16, 14 * 16, 14 * 16};
 int output_HXW[13] = {224 * 224, 224 * 224, 112 * 112, 112 * 112, 56 * 56, 56 * 56, 56 * 56,
-                      28 * 28, 28 * 28, 28 * 28, 14 * 14, 14 * 14, 14 * 14};
+                     28 * 28, 28 * 28, 28 * 28, 14 * 14, 14 * 14, 14 * 14};
 
 
 BARRIER_INIT(my_barrier, TASK_NUM + 1);
@@ -101,6 +101,48 @@ T line[14] = {1,8,5,12,2,9,6,13,3,10,7,14,4,11};
 
 // T line[14] = {1, 8, 11, 4, 13, 6, 9, 2, 12, 5, 10, 3, 7, 14};
 
+extern void conv_1d(T* in,T* out,int16_t size,T* wei);
+
+// void conv_1d(T* in,T* out,int16_t size,T* wei){
+
+//                         for(int16_t i = 0;i < size;i ++){  
+
+//                             if(i == 0){
+
+//                                 out[i + size] += (wei[1] * in[i]
+//                                                 + wei[2] * in[i + 1]);
+//                                 out[i] +=        (wei[4] * in[i]
+//                                                 + wei[5] * in[i + 1]);
+//                                 out[i - size] += (wei[7] * in[i]
+//                                                 + wei[8] * in[i + 1]);
+
+//                             } else if(i == size - 1){
+
+//                                 out[i + size] += (wei[0] * in[i - 1]
+//                                                 + wei[1] * in[i]);
+//                                 out[i] +=        (wei[3] * in[i - 1]
+//                                                 + wei[4] * in[i]);
+//                                 out[i - size] += (wei[6] * in[i - 1]
+//                                                 + wei[7] * in[i]);
+
+//                             } else{
+
+//                                 out[i + size] += (wei[0] * in[i - 1]
+//                                                 + wei[1] * in[i]
+//                                                 + wei[2] * in[i + 1]);
+//                                 out[i] +=        (wei[3] * in[i - 1]
+//                                                 + wei[4] * in[i]
+//                                                 + wei[5] * in[i + 1]);
+//                                 out[i - size] += (wei[6] * in[i - 1]
+//                                                 + wei[7] * in[i]
+//                                                 + wei[8] * in[i + 1]);
+
+//                             }
+
+//                         }
+
+// }
+
 
 //目前计算偏移的消耗过大，改成多维数组能好一点，
 //测试了静态数组(多维)，汇编使用移位的方式拼出偏移 ———— 但数组尺寸需要一开始就确定好 ———— 需每层编译一个文件
@@ -121,14 +163,14 @@ int main() {
         //前9层先装全部的weight和output，size固定，可以存成数组不必计算 //    if(conv_num <= 9)
         if(init == 0){
             init = 1;
-            int wsize = 1 *
+            int wsize = COUT *
                         CIN * CONV_SIZE * CONV_SIZE;
             buffer_weight = mem_alloc(wsize);
-            osize = 1 *
-                    224 * 224;
+            osize = COUT *
+            OUTHW * OUTHW;
             buffer_out = mem_alloc(osize);
             //剩下的给input —— 双缓冲
-            int isize = TASK_NUM * 224 * IN_GROUPS;
+            int isize = TASK_NUM * OUTHW * IN_GROUPS;
             buffer_inA = mem_alloc(isize);
             buffer_inB = mem_alloc(isize);
 
@@ -154,17 +196,18 @@ int main() {
 //        //循环加载input缓冲A或B,14行一组
 //        //一张图每次拿14行
         T* buffer_inAB = buffer_inA;
-        int finish_line = 0,write_offset = 0;
-        for (int z = 0; z < 224; z += TASK_NUM) {
-            offset = z * PAD(224);
+        T finish_line = 0;
+        int write_offset = 0;
+        for (int16_t z = 0; z < OUTHW; z += TASK_NUM) {
+            offset = z * PAD(OUTHW);
             //输入通道方向每次拿IN_GROUPS组
-            for(int t = 0;t < CIN / IN_GROUPS;t ++){
+            for(int16_t t = 0;t < CIN / IN_GROUPS;t ++){
                 //每次read 14行
                 int buffer_offset = 0;
-                for(int b = 0;b < IN_GROUPS;b ++,offset += OUTHXW){
+                for(T b = 0;b < IN_GROUPS;b ++,offset += OUTHXW){
 //                    printf("%d %d %d\n",z,t,b);
                     //14行
-                    int size = TASK_NUM * PAD(224);
+                    int16_t size = TASK_NUM * PAD(OUTHW);
 
                     if(size > 2048){
                         //根据实际大小，最多传两次就行，不写循环了
@@ -195,12 +238,12 @@ int main() {
 
             if(finish_line){
                 //一组（14行）的所有通道计算完成，写入MRAM（第一组13行、中间14行）----由于对齐原因，改成第一组写12行，中间14，最后16
-                int size = finish_line * 224;
+                int size = finish_line * OUTHW;
                 //输出通道
-                for (int i = 0; i < 1; ++i) {
+                for (int i = 0; i < COUT; ++i) {
 
                     int cout_offset = i * OUTHXW;
-
+                    
                     if(size > 2048){
                         mram_write(buffer_out + write_offset + cout_offset, outputAB + write_offset + cout_offset, 2048);
                         mram_write(buffer_out + write_offset + cout_offset + 2048, outputAB + write_offset + cout_offset + 2048, (size - 2048));
@@ -225,9 +268,9 @@ int main() {
         barrier_wait(&my_barrier);
         //传回MRAM（最后一组15行）----16行
         finish_line = 16;
-        int size = finish_line * 224;
+        int size = finish_line * OUTHW;
         //输出通道
-        for (int i = 0; i < 1; ++i) {
+        for (T i = 0; i < COUT; ++i) {
 
             int cout_offset = i * OUTHXW;
 //            printf("%d %d\n",write_offset,cout_offset);
@@ -257,18 +300,18 @@ int main() {
             //等缓冲区加载完
             barrier_wait(&my_barrier);
 
-            mutex_lock(my_mutex);
-            T myline = line[ztb];
-            ztb ++;
-            if(ztb == 14) ztb = 0;
-            mutex_unlock(my_mutex);
+            // mutex_lock(my_mutex);
+            // T myline = line[ztb];
+            // ztb ++;
+            // if(ztb == 14) ztb = 0;
+            // mutex_unlock(my_mutex);
 
-            // T myline = me();
+            T myline = me();
 
             //循环每次处理一个cin（上的14行（14线程））
             for(T b = 0;b < IN_GROUPS;b ++){
                 //本线程负责的行
-                T* in = buffer_in + (b * TASK_NUM + myline - 1) * 224;
+                T* in = buffer_in + (b * TASK_NUM + myline - 1) * OUTHW;
 
                 if(myline - 1 == 0 && groups == 0) first = 1;
                 else first = 0;
@@ -276,254 +319,127 @@ int main() {
                 else last = 0;
 
 
-                // if(first){
+                //在寄存器层面，可以测试不同stationary的差异
+                //但由于寄存器数量有限，不能完全测试
+                //1~6层 w > o > i   w没法全放下，固定一个cout，保证先用完
+                //7~9   o > w > i
+                //10~12 o > i > w
+                if(first){
 
-                //     for(int16_t i = 0;i < 224;i += 2){
+                    for(T j = 0;j < COUT;j ++){
 
-                //         for(T j = 0;j < 1;j ++){
+                        T* wei = buffer_weight + (j * CIN + cin_) * 9;
+                        T* out = buffer_out + j * OUTHXW + (groups * TASK_NUM + myline - 1) * OUTHW;
 
-                //             T* wei = buffer_weight + (j * CIN + cin_) * 9;
-                //             T* out = buffer_out + j * OUTHXW + (groups * TASK_NUM + myline - 1) * 224;
-
-                //             mutex_lock(my_mutex);
-                //             if(i == 0){
-                //                 out[i + 224] += (wei[1] * in[i]
-                //                                               + wei[2] * in[i + 1]);
-                //             }else{
-                //                 out[i + 224] += (wei[0] * in[i - 1]
-                //                                               + wei[1] * in[i]
-                //                                               + wei[2] * in[i + 1]);
-                //             }
-
-                //             if(i == 224 - 2){
-                //                 out[i + 224 + 1] += (wei[0] * in[i]
-                //                                                   + wei[1] * in[i + 1]);
-                //             }else{
-                //                 out[i + 224 + 1] += (wei[0] * in[i]
-                //                                                   + wei[1] * in[i + 1]
-                //                                                   + wei[2] * in[i + 2]);
-                //             }
-
-                //             //
-                //             if(i == 0){
-                //                 out[i] +=        (wei[4] * in[i]
-                //                                 + wei[5] * in[i + 1]);
-                //             }else{
-                //                 out[i] +=        (wei[3] * in[i - 1]
-                //                                 + wei[4] * in[i]
-                //                                 + wei[5] * in[i + 1]);
-                //             }
-
-                //             if(i == 224 - 2){
-                //                 out[i + 1] +=    (wei[3] * in[i]
-                //                                 + wei[4] * in[i + 1]);
-                //             }else{
-                //                 out[i + 1] +=    (wei[3] * in[i]
-                //                                 + wei[4] * in[i + 1]
-                //                                 + wei[5] * in[i + 2]);
-                //             }
-                //             mutex_unlock(my_mutex);
-
-                //         }
-
-                //     }
-                // }else if(last){
-
-                //     for(int16_t i = 0;i < 224;i += 2){
-
-                //         for(T j = 0;j < 1;j ++){
-
-                //             T* wei = buffer_weight + (j * CIN + cin_) * 9;
-                //             T* out = buffer_out + j * OUTHXW + (groups * TASK_NUM + myline - 1) * 224;
-
-                //             mutex_lock(my_mutex);
-                //             if(i == 0){
-                //                 out[i] +=        (wei[4] * in[i]
-                //                                 + wei[5] * in[i + 1]);
-                //             }else{
-                //                 out[i] +=        (wei[3] * in[i - 1]
-                //                                 + wei[4] * in[i]
-                //                                 + wei[5] * in[i + 1]);
-                //             }
-
-                //             if(i == 224 - 2){
-                //                 out[i + 1] +=    (wei[3] * in[i]
-                //                                 + wei[4] * in[i + 1]);
-                //             }else{
-                //                 out[i + 1] +=    (wei[3] * in[i]
-                //                                 + wei[4] * in[i + 1]
-                //                                 + wei[5] * in[i + 2]);
-                //             }
-
-                //             //
-                //             if(i == 0){
-                //                 out[i - 224] += (wei[7] * in[i]
-                //                                               + wei[8] * in[i + 1]);
-                //             }else{
-                //                 out[i - 224] += (wei[6] * in[i - 1]
-                //                                               + wei[7] * in[i]
-                //                                               + wei[8] * in[i + 1]);
-                //             }
-
-                //             if(i == 224 - 2){
-                //                 out[i - 224 + 1] += (wei[6] * in[i]
-                //                                                   + wei[7] * in[i + 1]);
-                //             }else{
-                //                 out[i - 224 + 1] += (wei[6] * in[i]
-                //                                                   + wei[7] * in[i + 1]
-                //                                                   + wei[8] * in[i + 2]);
-                //             }
-                //             mutex_unlock(my_mutex);
-
-                //         }
-
-                //     }
-
-                // }else{
-
-
-                //     for(int16_t i = 0;i < 224;i += 2){
-
-                //         for(T j = 0;j < 1;j ++){
-
-                //             T* wei = buffer_weight + (j * CIN + cin_) * 9;
-                //             T* out = buffer_out + j * OUTHXW + (groups * TASK_NUM + myline - 1) * 224;
-
-                //             mutex_lock(my_mutex);
-                //             if(i == 0){
-                //                 out[i + 224] += (wei[1] * in[i]
-                //                                               + wei[2] * in[i + 1]);
-                //             }else{
-                //                 out[i + 224] += (wei[0] * in[i - 1]
-                //                                               + wei[1] * in[i]
-                //                                               + wei[2] * in[i + 1]);
-                //             }
-
-                //             if(i == 224 - 2){
-                //                 out[i + 224 + 1] += (wei[0] * in[i]
-                //                                                   + wei[1] * in[i + 1]);
-                //             }else{
-                //                 out[i + 224 + 1] += (wei[0] * in[i]
-                //                                                   + wei[1] * in[i + 1]
-                //                                                   + wei[2] * in[i + 2]);
-                //             }
-
-                //             //
-                //             if(i == 0){
-                //                 out[i] +=        (wei[4] * in[i]
-                //                                 + wei[5] * in[i + 1]);
-                //             }else{
-                //                 out[i] +=        (wei[3] * in[i - 1]
-                //                                 + wei[4] * in[i]
-                //                                 + wei[5] * in[i + 1]);
-                //             }
-
-                //             if(i == 224 - 2){
-                //                 out[i + 1] +=    (wei[3] * in[i]
-                //                                 + wei[4] * in[i + 1]);
-                //             }else{
-                //                 out[i + 1] +=    (wei[3] * in[i]
-                //                                 + wei[4] * in[i + 1]
-                //                                 + wei[5] * in[i + 2]);
-                //             }
-
-                //             //
-                //             if(i == 0){
-                //                 out[i - 224] += (wei[7] * in[i]
-                //                                               + wei[8] * in[i + 1]);
-                //             }else{
-                //                 out[i - 224] += (wei[6] * in[i - 1]
-                //                                               + wei[7] * in[i]
-                //                                               + wei[8] * in[i + 1]);
-                //             }
-
-                //             if(i == 224 - 2){
-                //                 out[i - 224 + 1] += (wei[6] * in[i]
-                //                                                   + wei[7] * in[i + 1]);
-                //             }else{
-                //                 out[i - 224 + 1] += (wei[6] * in[i]
-                //                                                   + wei[7] * in[i + 1]
-                //                                                   + wei[8] * in[i + 2]);
-                //             }
-
-                //             mutex_unlock(my_mutex);
-
-                //         }
-
-                //     }
-
-                // }
-
-
-                for(int16_t i = 0;i < 224;i += 2){
-                    //所有cout的weight能固定在寄存器最好，目前寄存器不够
-                    for(T j = 0;j < 1;j ++){
-
-                        T* wei = buffer_weight + j * wsize_cout + cin_ * 9;
-                        T* out = buffer_out + j * OUTHXW + (groups * TASK_NUM + myline - 1) * 224;
-
-                        mutex_lock(my_mutex);
-                        if(!last){
+                        for(int16_t i = 0;i < OUTHW;i += 2){  
+                        
+                            // mutex_lock(my_mutex);
                             if(i == 0){
-                                out[i + 224] += (wei[1] * in[i]
-                                                   + wei[2] * in[i + 1]);
+                                out[i + OUTHW] += (wei[1] * in[i]
+                                                              + wei[2] * in[i + 1]);
                             }else{
-                                out[i + 224] += (wei[0] * in[i - 1]
-                                                   + wei[1] * in[i]
-                                                   + wei[2] * in[i + 1]);
+                                out[i + OUTHW] += (wei[0] * in[i - 1]
+                                                              + wei[1] * in[i]
+                                                              + wei[2] * in[i + 1]);
                             }
 
-                            if(i == 224 - 2){
-                                out[i + 224 + 1] += (wei[0] * in[i]
-                                                       + wei[1] * in[i + 1]);
+                            if(i == OUTHW - 2){
+                                out[i + OUTHW + 1] += (wei[0] * in[i]
+                                                                  + wei[1] * in[i + 1]);
                             }else{
-                                out[i + 224 + 1] += (wei[0] * in[i]
-                                                       + wei[1] * in[i + 1]
-                                                       + wei[2] * in[i + 2]);
+                                out[i + OUTHW + 1] += (wei[0] * in[i]
+                                                                  + wei[1] * in[i + 1]
+                                                                  + wei[2] * in[i + 2]);
                             }
 
-                        }
-
-                        if(i == 0){
-                            out[i] +=        (wei[4] * in[i]
-                                              + wei[5] * in[i + 1]);
-                        }else{
-                            out[i] +=        (wei[3] * in[i - 1]
-                                              + wei[4] * in[i]
-                                              + wei[5] * in[i + 1]);
-                        }
-
-                        if(i == 224 - 2){
-                            out[i + 1] +=    (wei[3] * in[i]
-                                              + wei[4] * in[i + 1]);
-                        }else{
-                            out[i + 1] +=    (wei[3] * in[i]
-                                              + wei[4] * in[i + 1]
-                                              + wei[5] * in[i + 2]);
-                        }
-
-                        if(!first){
+                            //
                             if(i == 0){
-                                out[i - 224] += (wei[7] * in[i]
-                                                   + wei[8] * in[i + 1]);
+                                out[i] +=        (wei[4] * in[i]
+                                                + wei[5] * in[i + 1]);
                             }else{
-                                out[i - 224] += (wei[6] * in[i - 1]
-                                                   + wei[7] * in[i]
-                                                   + wei[8] * in[i + 1]);
+                                out[i] +=        (wei[3] * in[i - 1]
+                                                + wei[4] * in[i]
+                                                + wei[5] * in[i + 1]);
                             }
 
-                            if(i == 224 - 2){
-                                out[i - 224 + 1] += (wei[6] * in[i]
-                                                       + wei[7] * in[i + 1]);
+                            if(i == OUTHW - 2){
+                                out[i + 1] +=    (wei[3] * in[i]
+                                                + wei[4] * in[i + 1]);
                             }else{
-                                out[i - 224 + 1] += (wei[6] * in[i]
-                                                       + wei[7] * in[i + 1]
-                                                       + wei[8] * in[i + 2]);
+                                out[i + 1] +=    (wei[3] * in[i]
+                                                + wei[4] * in[i + 1]
+                                                + wei[5] * in[i + 2]);
                             }
+                            // mutex_unlock(my_mutex);
 
                         }
 
-                        mutex_unlock(my_mutex);
+                    }
+                }else if(last){
+
+                    for(T j = 0;j < COUT;j ++){
+
+                        T* wei = buffer_weight + (j * CIN + cin_) * 9;
+                        T* out = buffer_out + j * OUTHXW + (groups * TASK_NUM + myline - 1) * OUTHW;
+
+                        for(int16_t i = 0;i < OUTHW;i += 2){  
+
+                            // mutex_lock(my_mutex);
+                            if(i == 0){
+                                out[i] +=        (wei[4] * in[i]
+                                                + wei[5] * in[i + 1]);
+                            }else{
+                                out[i] +=        (wei[3] * in[i - 1]
+                                                + wei[4] * in[i]
+                                                + wei[5] * in[i + 1]);
+                            }
+
+                            if(i == OUTHW - 2){
+                                out[i + 1] +=    (wei[3] * in[i]
+                                                + wei[4] * in[i + 1]);
+                            }else{
+                                out[i + 1] +=    (wei[3] * in[i]
+                                                + wei[4] * in[i + 1]
+                                                + wei[5] * in[i + 2]);
+                            }
+
+                            //
+                            if(i == 0){
+                                out[i - OUTHW] += (wei[7] * in[i]
+                                                              + wei[8] * in[i + 1]);
+                            }else{
+                                out[i - OUTHW] += (wei[6] * in[i - 1]
+                                                              + wei[7] * in[i]
+                                                              + wei[8] * in[i + 1]);
+                            }
+
+                            if(i == OUTHW - 2){
+                                out[i - OUTHW + 1] += (wei[6] * in[i]
+                                                                  + wei[7] * in[i + 1]);
+                            }else{
+                                out[i - OUTHW + 1] += (wei[6] * in[i]
+                                                                  + wei[7] * in[i + 1]
+                                                                  + wei[8] * in[i + 2]);
+                            }
+                            // mutex_unlock(my_mutex);
+
+                        }
+
+                    }
+
+                }else{
+
+
+                    for(T j = 0;j < COUT;j ++){
+
+                        T* wei = buffer_weight + (j * CIN + cin_) * 9;
+                        T* out = buffer_out + j * OUTHXW + (groups * TASK_NUM + myline - 1) * OUTHW;
+
+                        // mutex_lock(my_mutex);
+
+                        conv_1d(in,out,OUTHW,wei);
+
+                        // mutex_unlock(my_mutex);
 
                     }
 
@@ -548,90 +464,269 @@ int main() {
 
 
 
-//   for(T b = 0;b < IN_GROUPS;b ++){
-//     //本线程负责的行
-//     T* in = buffer_in + (b * TASK_NUM + myline - 1) * 224;
+            //   for(T b = 0;b < IN_GROUPS;b ++){
+            //     //本线程负责的行
+            //     T* in = buffer_in + (b * TASK_NUM + myline - 1) * OUTHW;
 
-//     if(myline - 1 == 0 && groups == 0) first = 1;
-//     else first = 0;
-//     if(myline - 1 == 13 && groups == output_groups[conv_num] - 1) last = 1;
-//     else last = 0;
+            //     if(myline - 1 == 0 && groups == 0) first = 1;
+            //     else first = 0;
+            //     if(myline - 1 == 13 && groups == output_groups[conv_num] - 1) last = 1;
+            //     else last = 0;
 
 
-//     for(int16_t i = 0;i < 224;i += 2){
-//         //所有cout的weight能固定在寄存器最好，目前寄存器不够
-//         for(T j = 0;j < 1;j ++){
+            //     for(int16_t i = 0;i < OUTHW;i += 2){
+            //         //所有cout的weight能固定在寄存器最好，目前寄存器不够
+            //         for(T j = 0;j < COUT;j ++){
 
-//             T* wei = buffer_weight + (j * CIN + cin_) * 9;
-//             T* out = buffer_out + j * OUTHXW + (groups * TASK_NUM + myline - 1) * 224;
+            //             T* wei = buffer_weight + (j * CIN + cin_) * 9;
+            //             T* out = buffer_out + j * OUTHXW + (groups * TASK_NUM + myline - 1) * OUTHW;
 
-//             if(!last){
-//                 if(i == 0){
-//                     out[i + 224] += (wei[1] * in[i]
-//                                                   + wei[2] * in[i + 1]);
-//                 }else{
-//                     out[i + 224] += (wei[0] * in[i - 1]
-//                                                   + wei[1] * in[i]
-//                                                   + wei[2] * in[i + 1]);
-//                 }
+            //             if(!last){
+            //                 if(i == 0){
+            //                     out[i + OUTHW] += (wei[1] * in[i]
+            //                                                   + wei[2] * in[i + 1]);
+            //                 }else{
+            //                     out[i + OUTHW] += (wei[0] * in[i - 1]
+            //                                                   + wei[1] * in[i]
+            //                                                   + wei[2] * in[i + 1]);
+            //                 }
 
-//                 if(i == 224 - 1){
-//                     out[i + 224 + 1] += (wei[0] * in[i]
-//                                                       + wei[1] * in[i + 1]);
-//                 }else{
-//                     out[i + 224 + 1] += (wei[0] * in[i]
-//                                                       + wei[1] * in[i + 1]
-//                                                       + wei[2] * in[i + 2]);
-//                 }
+            //                 if(i == OUTHW - 1){
+            //                     out[i + OUTHW + 1] += (wei[0] * in[i]
+            //                                                       + wei[1] * in[i + 1]);
+            //                 }else{
+            //                     out[i + OUTHW + 1] += (wei[0] * in[i]
+            //                                                       + wei[1] * in[i + 1]
+            //                                                       + wei[2] * in[i + 2]);
+            //                 }
 
-//             }
+            //             }
 
-//             if(i == 0){
-//                 out[i] +=        (wei[4] * in[i]
-//                                   + wei[5] * in[i + 1]);
-//             }else{
-//                 out[i] +=        (wei[3] * in[i - 1]
-//                                   + wei[4] * in[i]
-//                                   + wei[5] * in[i + 1]);
-//             }
+            //             if(i == 0){
+            //                 out[i] +=        (wei[4] * in[i]
+            //                                   + wei[5] * in[i + 1]);
+            //             }else{
+            //                 out[i] +=        (wei[3] * in[i - 1]
+            //                                   + wei[4] * in[i]
+            //                                   + wei[5] * in[i + 1]);
+            //             }
 
-//             if(i == 224 - 1){
-//                 out[i + 1] +=    (wei[3] * in[i]
-//                                   + wei[4] * in[i + 1]);
-//             }else{
-//                 out[i + 1] +=    (wei[3] * in[i]
-//                                   + wei[4] * in[i + 1]
-//                                   + wei[5] * in[i + 2]);
-//             }
+            //             if(i == OUTHW - 1){
+            //                 out[i + 1] +=    (wei[3] * in[i]
+            //                                   + wei[4] * in[i + 1]);
+            //             }else{
+            //                 out[i + 1] +=    (wei[3] * in[i]
+            //                                   + wei[4] * in[i + 1]
+            //                                   + wei[5] * in[i + 2]);
+            //             }
 
-//             if(!first){
-//                 if(i == 0){
-//                     out[i - 224] += (wei[7] * in[i]
-//                                                   + wei[8] * in[i + 1]);
-//                 }else{
-//                     out[i - 224] += (wei[6] * in[i - 1]
-//                                                   + wei[7] * in[i]
-//                                                   + wei[8] * in[i + 1]);
-//                 }
+            //             if(!first){
+            //                 if(i == 0){
+            //                     out[i - OUTHW] += (wei[7] * in[i]
+            //                                                   + wei[8] * in[i + 1]);
+            //                 }else{
+            //                     out[i - OUTHW] += (wei[6] * in[i - 1]
+            //                                                   + wei[7] * in[i]
+            //                                                   + wei[8] * in[i + 1]);
+            //                 }
 
-//                 if(i == 224 - 1){
-//                     out[i - 224 + 1] += (wei[6] * in[i]
-//                                                       + wei[7] * in[i + 1]);
-//                 }else{
-//                     out[i - 224 + 1] += (wei[6] * in[i]
-//                                                       + wei[7] * in[i + 1]
-//                                                       + wei[8] * in[i + 2]);
-//                 }
+            //                 if(i == OUTHW - 1){
+            //                     out[i - OUTHW + 1] += (wei[6] * in[i]
+            //                                                       + wei[7] * in[i + 1]);
+            //                 }else{
+            //                     out[i - OUTHW + 1] += (wei[6] * in[i]
+            //                                                       + wei[7] * in[i + 1]
+            //                                                       + wei[8] * in[i + 2]);
+            //                 }
 
-//             }
+            //             }
 
-//         }
+            //         }
 
-//     }
+            //     }
 
-//     cin_ ++;
-//     if(cin_ == CIN){
-//         cin_ = 0;
-//         groups ++;
-//     }
-// }
+            //     cin_ ++;
+            //     if(cin_ == CIN){
+            //         cin_ = 0;
+            //         groups ++;
+            //     }
+            // }
+
+
+                // if(first){
+
+                //     for(T j = 0;j < COUT;j ++){
+
+                //         T* wei = buffer_weight + (j * CIN + cin_) * 9;
+                //         T* out = buffer_out + j * OUTHXW + (groups * TASK_NUM + myline - 1) * OUTHW;
+
+                //         for(int16_t i = 0;i < OUTHW;i += 2){  
+                        
+                //             // mutex_lock(my_mutex);
+                //             if(i == 0){
+                //                 out[i + OUTHW] += (wei[1] * in[i]
+                //                                               + wei[2] * in[i + 1]);
+                //             }else{
+                //                 out[i + OUTHW] += (wei[0] * in[i - 1]
+                //                                               + wei[1] * in[i]
+                //                                               + wei[2] * in[i + 1]);
+                //             }
+
+                //             if(i == OUTHW - 2){
+                //                 out[i + OUTHW + 1] += (wei[0] * in[i]
+                //                                                   + wei[1] * in[i + 1]);
+                //             }else{
+                //                 out[i + OUTHW + 1] += (wei[0] * in[i]
+                //                                                   + wei[1] * in[i + 1]
+                //                                                   + wei[2] * in[i + 2]);
+                //             }
+
+                //             //
+                //             if(i == 0){
+                //                 out[i] +=        (wei[4] * in[i]
+                //                                 + wei[5] * in[i + 1]);
+                //             }else{
+                //                 out[i] +=        (wei[3] * in[i - 1]
+                //                                 + wei[4] * in[i]
+                //                                 + wei[5] * in[i + 1]);
+                //             }
+
+                //             if(i == OUTHW - 2){
+                //                 out[i + 1] +=    (wei[3] * in[i]
+                //                                 + wei[4] * in[i + 1]);
+                //             }else{
+                //                 out[i + 1] +=    (wei[3] * in[i]
+                //                                 + wei[4] * in[i + 1]
+                //                                 + wei[5] * in[i + 2]);
+                //             }
+                //             // mutex_unlock(my_mutex);
+
+                //         }
+
+                //     }
+                // }else if(last){
+
+                //     for(T j = 0;j < COUT;j ++){
+
+                //         T* wei = buffer_weight + (j * CIN + cin_) * 9;
+                //         T* out = buffer_out + j * OUTHXW + (groups * TASK_NUM + myline - 1) * OUTHW;
+
+                //         for(int16_t i = 0;i < OUTHW;i += 2){  
+
+                //             // mutex_lock(my_mutex);
+                //             if(i == 0){
+                //                 out[i] +=        (wei[4] * in[i]
+                //                                 + wei[5] * in[i + 1]);
+                //             }else{
+                //                 out[i] +=        (wei[3] * in[i - 1]
+                //                                 + wei[4] * in[i]
+                //                                 + wei[5] * in[i + 1]);
+                //             }
+
+                //             if(i == OUTHW - 2){
+                //                 out[i + 1] +=    (wei[3] * in[i]
+                //                                 + wei[4] * in[i + 1]);
+                //             }else{
+                //                 out[i + 1] +=    (wei[3] * in[i]
+                //                                 + wei[4] * in[i + 1]
+                //                                 + wei[5] * in[i + 2]);
+                //             }
+
+                //             //
+                //             if(i == 0){
+                //                 out[i - OUTHW] += (wei[7] * in[i]
+                //                                               + wei[8] * in[i + 1]);
+                //             }else{
+                //                 out[i - OUTHW] += (wei[6] * in[i - 1]
+                //                                               + wei[7] * in[i]
+                //                                               + wei[8] * in[i + 1]);
+                //             }
+
+                //             if(i == OUTHW - 2){
+                //                 out[i - OUTHW + 1] += (wei[6] * in[i]
+                //                                                   + wei[7] * in[i + 1]);
+                //             }else{
+                //                 out[i - OUTHW + 1] += (wei[6] * in[i]
+                //                                                   + wei[7] * in[i + 1]
+                //                                                   + wei[8] * in[i + 2]);
+                //             }
+                //             // mutex_unlock(my_mutex);
+
+                //         }
+
+                //     }
+
+                // }else{
+
+
+                //     for(T j = 0;j < COUT;j ++){
+
+                //         T* wei = buffer_weight + (j * CIN + cin_) * 9;
+                //         T* out = buffer_out + j * OUTHXW + (groups * TASK_NUM + myline - 1) * OUTHW;
+
+                //         for(int16_t i = 0;i < OUTHW;i += 2){  
+
+                //             // mutex_lock(my_mutex);
+                //             if(i == 0){
+                //                 out[i + OUTHW] += (wei[1] * in[i]
+                //                                               + wei[2] * in[i + 1]);
+                //             }else{
+                //                 out[i + OUTHW] += (wei[0] * in[i - 1]
+                //                                               + wei[1] * in[i]
+                //                                               + wei[2] * in[i + 1]);
+                //             }
+
+                //             if(i == OUTHW - 2){
+                //                 out[i + OUTHW + 1] += (wei[0] * in[i]
+                //                                                   + wei[1] * in[i + 1]);
+                //             }else{
+                //                 out[i + OUTHW + 1] += (wei[0] * in[i]
+                //                                                   + wei[1] * in[i + 1]
+                //                                                   + wei[2] * in[i + 2]);
+                //             }
+
+                //             //
+                //             if(i == 0){
+                //                 out[i] +=        (wei[4] * in[i]
+                //                                 + wei[5] * in[i + 1]);
+                //             }else{
+                //                 out[i] +=        (wei[3] * in[i - 1]
+                //                                 + wei[4] * in[i]
+                //                                 + wei[5] * in[i + 1]);
+                //             }
+
+                //             if(i == OUTHW - 2){
+                //                 out[i + 1] +=    (wei[3] * in[i]
+                //                                 + wei[4] * in[i + 1]);
+                //             }else{
+                //                 out[i + 1] +=    (wei[3] * in[i]
+                //                                 + wei[4] * in[i + 1]
+                //                                 + wei[5] * in[i + 2]);
+                //             }
+
+                //             //
+                //             if(i == 0){
+                //                 out[i - OUTHW] += (wei[7] * in[i]
+                //                                               + wei[8] * in[i + 1]);
+                //             }else{
+                //                 out[i - OUTHW] += (wei[6] * in[i - 1]
+                //                                               + wei[7] * in[i]
+                //                                               + wei[8] * in[i + 1]);
+                //             }
+
+                //             if(i == OUTHW - 2){
+                //                 out[i - OUTHW + 1] += (wei[6] * in[i]
+                //                                                   + wei[7] * in[i + 1]);
+                //             }else{
+                //                 out[i - OUTHW + 1] += (wei[6] * in[i]
+                //                                                   + wei[7] * in[i + 1]
+                //                                                   + wei[8] * in[i + 2]);
+                //             }
+
+                //             // mutex_unlock(my_mutex);
+
+                //         }
+
+                //     }
+
+                // }

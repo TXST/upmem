@@ -8,26 +8,38 @@
 
 #define T int8_t
 
+//#define C_in 3
+//#define C_out 64
+//
+//#define H_ 224
+//#define W_ 224
+//#define K_ 3
+//#define S_ 1
+//
+//#define ALIGN8(x) x % 8 == 0 ? x : x / 8 * 8 + 8
+//
+//#define out_size  6
+//
+//#define IMG_SIZE 224
+//#define CONV_SIZE 3
+//#define DPU_NUM 8
+
 
 __dma_aligned T* buffer1;
+__dma_aligned T* buffer_weight;
 __dma_aligned T* buffer2;
+__dma_aligned T buffer[3][3][224];
 
 //__mram_noinit T input[3 * 224 * 224];
 __mram_noinit T input[3][224][224];
 //__mram_noinit T weight[64 * 3 * 3 * 3];
 
-#define CONV_NUM 0
-
-
-__dma_aligned T* buffer_inA;
-__dma_aligned T* buffer_inB;
-__dma_aligned T* buffer_weight;
-__dma_aligned T* buffer_out;
-
 
 #define SIZE (64 * 3 * 3)
 
 int main() {
+
+//    printf("hello~\n");
 
 //    buddy_init(60000);
 

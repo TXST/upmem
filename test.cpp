@@ -77,12 +77,6 @@ vector<T> mem_block1_dense(512 * 7 * 7,0);
 vector<T> mem_block2_dense(512 * 7 * 7,0);
 
 
-static inline double my_clock(void) {
-    struct timespec t;
-    clock_gettime(CLOCK_MONOTONIC_RAW, &t);
-    return (1.0e-9 * t.tv_nsec + t.tv_sec);
-}
-
 
 void reset_mem_block(vector<vector<vector<T> > > &mem_block) {
 
@@ -146,26 +140,24 @@ void free_memory() {
 void check_output(vector<T>in,vector<T>out,int level,int size){
 
     for(int j = 0;j < 2;j ++){
-        // printf("\ninput:\n");
-        // for(int z = 0;z < 3;z ++){
-        //     for(int t = 0;t < 3;t ++){
-        //         printf("%d ",in[j * size * size + z * size + t]);
-        //     }
-        // }
-        // printf("\nweight:\n");
-        // for(int z = 0;z < 3;z ++){
-        //     for(int t = 0;t < 3;t ++){
-        //         printf("%d ",wc[level][0][j][z][t]);
-        //     }
-        // }
-        printf("\ndpu%d:\n",j);
-        for(int z = 0;z < 26;z ++){
-            for(int t = 0;t < 9;t ++){
+        printf("\ninput:\n");
+        for(int z = 0;z < 3;z ++){
+            for(int t = 0;t < 3;t ++){
+                printf("%d ",in[j * size * size + z * size + t]);
+            }
+        }
+        printf("\nweight:\n");
+        for(int z = 0;z < 3;z ++){
+            for(int t = 0;t < 3;t ++){
+                printf("%d ",wc[level][0][j][z][t]);
+            }
+        }
+        printf("\noutput:\n");
+        for(int z = 0;z < 3;z ++){
+            for(int t = 0;t < 3;t ++){
                 printf("%d ",out[j * size * size + z * size + t]);
             }
-            printf("\n");
         }
-        printf("\n");
     }
 
     printf("\n");
@@ -255,7 +247,7 @@ void read_image(char *in_file,vector<vector<vector<T> > > &image) {
     }
     printf("reading... %s\n", in_file);
 
-/* Reading image */
+    /* Reading image */
     for (i = 0; i < 3; i++) {
         for (j = 0; j < IMG_SIZE; j++) {
             for (l = 0; l < IMG_SIZE; l++) {
@@ -269,11 +261,11 @@ void read_image(char *in_file,vector<vector<vector<T> > > &image) {
     fclose(iin);
 }
 
+T zeropad[IMG_SIZE + 2][IMG_SIZE + 2] = {0};
 
 void convolution_3_x_3(vector<vector<T> >matrix, vector<vector<T> >kernel, vector<vector<T> >&out, int size) {
     int i, j;
     T sum;
-    T zeropad[IMG_SIZE + 2][IMG_SIZE + 2] = {0};
 
     for (i = 0; i < size; i++) {
         for (j = 0; j < size; j++) {
@@ -372,7 +364,7 @@ int thread_idx = 0;
 
 struct dpu_set_t set[13];
 
-char *weights_file = "weights.txt";
+char *weights_file = "weights1.txt";
 char *image_files[] = {"cat1.txt","cat2.txt"};
 char *output_file = "results.txt";
 
@@ -404,32 +396,20 @@ public:
         int label;
         struct dpu_set_t dpu;
         uint32_t idx,idz = 0;
-        double start,end;
         vector<vector<vector<T> > > image(3, vector<vector<T>>(IMG_SIZE, vector<T>(IMG_SIZE, 0)));;
         vector<vector<vector<T> > > mem_block1(64, vector<vector<T>>(IMG_SIZE, vector<T>(IMG_SIZE, 0)));
 
 
-
         //--------------------conv1 in cpu------------------------
         //加载img ———— 这玩意如果很慢就单开一个线程
-        start = my_clock();
         read_image(image_files[pid],image);
-        end = my_clock();
-        printf("read_image\t: %.2e secs.\n", end - start);
-
         //为了负载均衡，第一层在cpu算
+
+        //TODO：---------mem_block1--数组或线程内部变量
+
         conv1(image,mem_block1);
-        end = my_clock();
-        printf("conv1\t: %.2e secs.\n", end - start);
 
-        printf("conv1 done~~\n");
-
-
-
-        mtx[0].lock();
-
-        start = my_clock();
-
+        printf("conv1 done~\n");
         //conv1结果作为输入广播给第一个set
 //        int out_size = cshape[0][0] * PAD(out_HW[0]) * PAD(out_HW[0]);
         int out_size = cshape[0][0] * out_HW[0] * PAD(out_HW[0]);   //为了dpu 1D conv方便，这里只padding行方向---不pad了
@@ -444,14 +424,13 @@ public:
 //                    conv_res[0][i * out_HW[0] * PAD(out_HW[0])
 //                                + j * PAD(out_HW[0]) + (k + 1)] = mem_block1[i][j][k];
 
-        end = my_clock();
-        printf("DRAM\t: %.2e secs.\n", end - start);
         //--------------------conv2--------------------------
 
+        mtx[0].lock();
         //用来区分AB缓冲区
         thread_idx ++;
         pid = thread_idx;
-        // cout << "Worker" << pid << "---thread" << omp_get_thread_num() << endl;
+        cout << "Worker" << pid << "---thread" << omp_get_thread_num() << endl;
         char * inputAB;
         char * outputAB;
         if(pid % 2){
@@ -461,39 +440,25 @@ public:
             inputAB = "inputB";
             outputAB = "outputB";
         }
-        start = my_clock();
         //start transfer
         DPU_ASSERT(dpu_broadcast_to(set[1], inputAB, 0, &conv_res[0][0],
                                     (out_size * sizeof(T)), DPU_XFER_DEFAULT));
-
         //告诉dpu是用A0还是B1----锁保证线程有序，以后的层可以用相同的缓冲区
         DPU_ASSERT(dpu_broadcast_to(set[1], "pid", 0,
                                     &pid, sizeof(pid), DPU_XFER_DEFAULT));
         //先拿后锁，再放前锁，保证执行顺序
-        end = my_clock();
-        printf("to dpu\t: %.2e secs.\n", end - start);
-
-
         mtx[1].lock();
         mtx[0].unlock();
 
-        start = my_clock();
-
         DPU_ASSERT(dpu_launch(set[1], DPU_SYNCHRONOUS));
         //TODO：最后把log去掉
-        // DPU_FOREACH(set[1], dpu) {
-        //     DPU_ASSERT(dpu_log_read(dpu, stdout));
-        // }
-
-        end = my_clock();
-        printf("conv2\t: %.2e secs.\n", end - start);
-
+//        DPU_FOREACH(set[1], dpu) {
+//            DPU_ASSERT(dpu_log_read(dpu, stdout));
+//        }
         printf("conv2 done~\n");
 
         mtx[2].lock();
         mtx[1].unlock();
-
-        start = my_clock();
 
         //------------------------conv3------------------------------
         //from set1 to set2
@@ -506,9 +471,6 @@ public:
         }
         DPU_ASSERT(dpu_push_xfer(set[1], DPU_XFER_FROM_DPU, outputAB,
                                  0, (out_size / split[1]) * sizeof(T), DPU_XFER_DEFAULT));
-
-        end = my_clock();
-        printf("to cpu\t: %.2e secs.\n", end - start);
 
         check_output(conv_res[0],conv_res[1],1,out_HW[1]);
 
@@ -597,7 +559,7 @@ int main() {
 //begin pipeline
 #pragma omp parallel for
 
-    for(int i = 0;i < 2;i ++){
+    for(int i = 0;i < 1;i ++){
         Worker w(i);
     }
 

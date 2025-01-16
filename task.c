@@ -14,9 +14,9 @@
 
 #define T int8_t
 
-#define ALIGN8(x) (x % 8 == 0 ? x : x / 8 * 8 + 8)
+// #define ALIGN8(x) (x % 8 == 0 ? x : x / 8 * 8 + 8)
 
-//#define IMG_SIZE 224
+#define TASK_NUM (14)   //14个计算线程， 1个加载线程
 #define CONV_SIZE 3
 
 //cout(切了之后)  cin
@@ -35,6 +35,10 @@ T pool[13] = {0,1,0,1,0,0,1,
 int16_t out_HW[13] = {224, 224, 112, 112, 56, 56, 56,
                       28, 28, 28, 14, 14, 14};
 
+//out_HW[conv_num] / TASK_NUM
+T output_groups[] = {224 / TASK_NUM, 224 / TASK_NUM, 112 / TASK_NUM, 112 / TASK_NUM, 56 / TASK_NUM, 56 / TASK_NUM, 56 / TASK_NUM,
+                     28 / TASK_NUM, 28 / TASK_NUM, 28 / TASK_NUM, 14 / TASK_NUM, 14 / TASK_NUM, 14 / TASK_NUM};
+
 
 //单个缓冲区每次加载的input组数（每层）
 T input_groups[13] = {0,2 - 1,3 - 1,11 - 1,17 - 1,25 - 1,25 - 1,16 - 1,24 - 1,24 - 1,0,0,0};
@@ -44,10 +48,10 @@ T input_groups[13] = {0,2 - 1,3 - 1,11 - 1,17 - 1,25 - 1,25 - 1,16 - 1,24 - 1,24
 int output_HXW[13] = {224 * 224, 224 * 224, 112 * 112, 112 * 112, 56 * 56, 56 * 56, 56 * 56,
                       28 * 28, 28 * 28, 28 * 28, 14 * 14, 14 * 14, 14 * 14};
 
-#define TASK_NUM (14)   //14个计算线程， 1个加载线程
+
 BARRIER_INIT(my_barrier, TASK_NUM + 1);
 
-#define BUFFER_ALL ((64 - 2) * 1024) //留2K stack？     - 96
+// #define BUFFER_ALL ((64 - 2) * 1024) //留2K stack？     - 96
 //#define BUFFER_IN (64 * 3 * 3 * TASK_NUM) //矩阵加载，input冗余
 
 //WRAM缓存，动态分配
@@ -91,9 +95,7 @@ T line[14] = {1,8,5,12,2,9,6,13,3,10,7,14,4,11};
 
 //目前计算偏移的消耗过大，改成多维数组能好一点，
 //测试了静态数组(多维)，汇编使用移位的方式拼出偏移 ———— 但数组尺寸需要一开始就确定好 ———— 需每层编译一个文件
-//测试了T***的形式，比上面的指令更少，———— 但这玩意应该不连续，WRAM传数据开销变大，主要是8byte对齐搞不了
-//也可以往一维数组上挂指针，但空间开销无法接受
-
+//测试了T***的形式，比上面的指令更少，———— 但这玩意应该不连续，WRAM传数据开销变大
 
 int main() {
 
@@ -168,7 +170,6 @@ int main() {
                         mram_read(inputAB + offset, buffer_inAB + buffer_offset, size);
                     }
 
-
                     buffer_offset += size;
                 }
                 buffer_in = buffer_inAB;    //给计算线程
@@ -180,6 +181,7 @@ int main() {
                 //完成一次缓冲区加载，唤醒计算线程
                 barrier_wait(&my_barrier);
             }
+
 
             //剩下的通道
 //            if(cin[conv_num] % input_groups[conv_num]){
@@ -241,12 +243,12 @@ int main() {
 
     }else{
 
-        //    printf("conv-%lld--thread-%d--stack--%d--buffer-%lld\n",conv_num,me(),check_stack(),pid);
+    //    printf("conv-%lld--thread-%d--stack--%d--buffer-%lld\n",conv_num,me(),check_stack(),pid);
 
         //----之后想办法把里面的乘法去掉，或者改成8位乘法
 
         //循环拿缓冲A或B的数据，算卷积
-        int cin_ = 0,wsize_cout = cin[conv_num] * 9;
+        int16_t cin_ = 0,wsize_cout = cin[conv_num] * 9;
         T groups = 0,first = 0,last = 0; //当前组数，是否是第一行、最后一行
         while(finish != 1) {
             //等缓冲区加载完
@@ -261,13 +263,13 @@ int main() {
             // T myline = me();
 
             //循环每次处理一个cin（上的14行（14线程））
-            for(int b = 0;b < input_groups[conv_num];b ++){
+            for(T b = 0;b < input_groups[conv_num];b ++){
                 //本线程负责的行
                 T* in = buffer_in + (b * TASK_NUM + myline - 1) * PAD(out_HW[conv_num]);
 
                 if(myline - 1 == 0 && groups == 0) first = 1;
                 else first = 0;
-                if(myline - 1 == 13 && groups == out_HW[conv_num] / TASK_NUM - 1) last = 1;
+                if(myline - 1 == 13 && groups == output_groups[conv_num] - 1) last = 1;
                 else last = 0;
 
                 //比较：1D conv 基本可以完全reuse kernel(横向和纵向)和cout —— 寄存器不够，cout可能没法完全复用；
@@ -275,34 +277,66 @@ int main() {
                 //1D conv相对的缺点：有锁的风险，以及if能通过压数据变成向量内积，相比于矩阵方式可能浪费一些空间（用不满寄存器）
 
                 // 1D conv，buffer_out是psum，需要cin和3行kernel的结果累加
-                for(int i = 0;i < out_HW[conv_num];i += 2){
+                for(int16_t i = 0;i < out_HW[conv_num];i += 2){
                     //所有cout的weight能固定在寄存器最好，目前寄存器不够
-                    for(int j = 0;j < cout[conv_num];j ++){
+                    for(T j = 0;j < cout[conv_num];j ++){
 
                         T* wei = buffer_weight + j * wsize_cout + cin_ * 9;
                         T* out = buffer_out + j * output_HXW[conv_num] + (groups * TASK_NUM + myline - 1) * out_HW[conv_num];
 
-                        // mutex_lock(my_mutex);
+                        mutex_lock(my_mutex);
+                        // if(i == 0){
+
+                        //     if(!last) out[i + out_HW[conv_num]] += (wei[1] * in[i]
+                        //                                             + wei[2] * in[i + 1]);
+                        //     out[i] +=        (wei[4] * in[i]
+                        //                       + wei[5] * in[i + 1]);
+                        //     if(!first) out[i - out_HW[conv_num]] += (wei[7] * in[i]
+                        //                                              + wei[8] * in[i + 1]);
+
+                        // } else if(i == out_HW[conv_num] - 1){
+
+                        //     if(!last) out[i + out_HW[conv_num]] += (wei[0] * in[i - 1]
+                        //                                             + wei[1] * in[i]);
+                        //     out[i] +=        (wei[3] * in[i - 1]
+                        //                       + wei[4] * in[i]);
+                        //     if(!first) out[i - out_HW[conv_num]] += (wei[6] * in[i - 1]
+                        //                                              + wei[7] * in[i]);
+
+                        // } else{
+
+                        //     if(!last) out[i + out_HW[conv_num]] += (wei[0] * in[i - 1]
+                        //                                             + wei[1] * in[i]
+                        //                                             + wei[2] * in[i + 1]);
+                        //     out[i] +=        (wei[3] * in[i - 1]
+                        //                       + wei[4] * in[i]
+                        //                       + wei[5] * in[i + 1]);
+                        //     if(!first) out[i - out_HW[conv_num]] += (wei[6] * in[i - 1]
+                        //                                              + wei[7] * in[i]
+                        //                                              + wei[8] * in[i + 1]);
+
+                        // }
+
 
                         if(!last){
                             if(i == 0){
                                 out[i + out_HW[conv_num]] += (wei[1] * in[i]
-                                                              + wei[2] * in[i + 1]);
+                                                                    + wei[2] * in[i + 1]);
                             }else{
                                 out[i + out_HW[conv_num]] += (wei[0] * in[i - 1]
-                                                              + wei[1] * in[i]
-                                                              + wei[2] * in[i + 1]);
+                                                                    + wei[1] * in[i]
+                                                                    + wei[2] * in[i + 1]);
                             }
 
-                            if(i == out_HW[conv_num] - 1){
+                            if(i == out_HW[conv_num] - 2){
                                 out[i + out_HW[conv_num] + 1] += (wei[0] * in[i]
-                                                                  + wei[1] * in[i + 1]);
+                                                                    + wei[1] * in[i + 1]);
                             }else{
                                 out[i + out_HW[conv_num] + 1] += (wei[0] * in[i]
-                                                                  + wei[1] * in[i + 1]
-                                                                  + wei[2] * in[i + 2]);
+                                                                    + wei[1] * in[i + 1]
+                                                                    + wei[2] * in[i + 2]);
                             }
-
+                                
                         }
 
                         if(i == 0){
@@ -313,8 +347,8 @@ int main() {
                                               + wei[4] * in[i]
                                               + wei[5] * in[i + 1]);
                         }
-
-                        if(i == out_HW[conv_num] - 1){
+                        
+                        if(i == out_HW[conv_num] - 2){
                             out[i + 1] +=    (wei[3] * in[i]
                                               + wei[4] * in[i + 1]);
                         }else{
@@ -322,30 +356,30 @@ int main() {
                                               + wei[4] * in[i + 1]
                                               + wei[5] * in[i + 2]);
                         }
-
+                            
                         if(!first){
                             if(i == 0){
                                 out[i - out_HW[conv_num]] += (wei[7] * in[i]
-                                                              + wei[8] * in[i + 1]);
+                                                                     + wei[8] * in[i + 1]);
                             }else{
                                 out[i - out_HW[conv_num]] += (wei[6] * in[i - 1]
-                                                              + wei[7] * in[i]
-                                                              + wei[8] * in[i + 1]);
+                                                                     + wei[7] * in[i]
+                                                                     + wei[8] * in[i + 1]);
                             }
-
-                            if(i == out_HW[conv_num] - 1){
+                            
+                            if(i == out_HW[conv_num] - 2){
                                 out[i - out_HW[conv_num] + 1] += (wei[6] * in[i]
-                                                                  + wei[7] * in[i + 1]);
+                                                                     + wei[7] * in[i + 1]);
                             }else{
                                 out[i - out_HW[conv_num] + 1] += (wei[6] * in[i]
-                                                                  + wei[7] * in[i + 1]
-                                                                  + wei[8] * in[i + 2]);
+                                                                     + wei[7] * in[i + 1]
+                                                                     + wei[8] * in[i + 2]);
                             }
+                                
+                        } 
+                        mutex_unlock(my_mutex);
 
-                        }
-                        // mutex_unlock(my_mutex);
-
-                    }
+                    } 
 
                 }
 
@@ -365,39 +399,6 @@ int main() {
 
     return 0;
 }
-
-
-// if(i == 0){
-
-//     if(!last) out[i + out_HW[conv_num]] += (wei[1] * in[i]
-//                                             + wei[2] * in[i + 1]);
-//     out[i] +=        (wei[4] * in[i]
-//                       + wei[5] * in[i + 1]);
-//     if(!first) out[i - out_HW[conv_num]] += (wei[7] * in[i]
-//                                              + wei[8] * in[i + 1]);
-
-// } else if(i == out_HW[conv_num] - 1){
-
-//     if(!last) out[i + out_HW[conv_num]] += (wei[0] * in[i - 1]
-//                                             + wei[1] * in[i]);
-//     out[i] +=        (wei[3] * in[i - 1]
-//                       + wei[4] * in[i]);
-//     if(!first) out[i - out_HW[conv_num]] += (wei[6] * in[i - 1]
-//                                              + wei[7] * in[i]);
-
-// } else{
-
-//     if(!last) out[i + out_HW[conv_num]] += (wei[0] * in[i - 1]
-//                                             + wei[1] * in[i]
-//                                             + wei[2] * in[i + 1]);
-//     out[i] +=        (wei[3] * in[i - 1]
-//                       + wei[4] * in[i]
-//                       + wei[5] * in[i + 1]);
-//     if(!first) out[i - out_HW[conv_num]] += (wei[6] * in[i - 1]
-//                                              + wei[7] * in[i]
-//                                              + wei[8] * in[i + 1]);
-
-// }
 
 
 //void scan(T *in,int C,int H,int W){

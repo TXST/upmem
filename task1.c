@@ -13,11 +13,11 @@
 
 #define T int8_t
 
-#define ALIGN8(x) (x % 8 == 0 ? x : x / 8 * 8 + 8)
+// #define ALIGN8(x) (x % 8 == 0 ? x : x / 8 * 8 + 8)
 
 #define TASK_NUM (14)   //14个计算线程， 1个加载线程
 BARRIER_INIT(my_barrier, TASK_NUM + 1);
-#define BUFFER_ALL ((64 - 2) * 1024) //留2K stack？     - 96
+// #define BUFFER_ALL ((64 - 2) * 1024) //留2K stack？     - 96
 #define CONV_SIZE 3
 
 //cout(切了之后)  cin
@@ -78,7 +78,7 @@ T __mram_ptr * outputAB;
 #define PAD(H) (H)
 
 T init = 0;
-T buffer_in;    //flag
+T buffer_in = 0;    //flag
 T finish = 0;   //=1全部加载完毕
 __host __dma_aligned int64_t conv_num,pid;  //所计算的卷积层，和缓冲区
 
@@ -121,7 +121,7 @@ int main() {
             for(int j = 0;j < OUTHW;j ++)
                 for(int k = 0;k < OUTHW;k ++)
                     buffer_out[i][j][k] = 0;
-
+        
 
         if(pid % 2){
             inputAB = inputA;
@@ -156,9 +156,9 @@ int main() {
 
                     buffer_offset += size;
                 }
-
+                
                 if(buffer_inAB == &buffer_inA[0][0][0]){
-                    buffer_in = 0;    //gaosu计算线程--buffer_inA
+                    buffer_in = 0;    //告诉计算线程--buffer_inA
                     buffer_inAB = &buffer_inB[0][0][0];
                 }else{
                     buffer_in = 1;
@@ -182,7 +182,7 @@ int main() {
 
                     int cout_offset = i * output_HXW[conv_num];
 //                    printf("%d %d\n",write_offset,cout_offset);
-
+                    
                     if(size > 2048){
                         mram_write(&buffer_out[0][0][0] + write_offset + cout_offset, outputAB + write_offset + cout_offset, 2048);
                         mram_write(&buffer_out[0][0][0] + write_offset + cout_offset + 2048, outputAB + write_offset + cout_offset + 2048, (size - 2048));
@@ -230,7 +230,7 @@ int main() {
         //    printf("conv-%lld--thread-%d--stack--%d--buffer-%lld\n",conv_num,me(),check_stack(),pid);
 
         //循环拿缓冲A或B的数据，算卷积
-        int16_t cin_ = 0;
+        int16_t cin_ = 0;  
         T groups = 0,first = 0,last = 0; //当前组数，是否是第一行、最后一行
         while(finish != 1) {
             //等缓冲区加载完
@@ -262,12 +262,17 @@ int main() {
                     //所有cout的weight能固定在寄存器最好，目前寄存器不够
                     for(T j = 0;j < cout[conv_num];j ++){
 
+                        // #pragma GCC push_options
+                        // #pragma GCC optimize("O0")
                         // T* wei = buffer_weight + j * (cin[conv_num] * 9) + cin_ * 9;
                         //buffer_weight[COUT][CIN][CONV_SIZE * CONV_SIZE]
-                        T* wei = &buffer_weight[j][cin_][0];
+                        //volatile
+                         T* wei = &buffer_weight[j][cin_][0];
                         // T* out = buffer_out + j * output_HXW[conv_num] + (groups * TASK_NUM + myline - 1) * out_HW[conv_num];
                         //buffer_out[COUT][OUTHW][OUTHW]
-                        T* out = &buffer_out[j][groups * TASK_NUM + myline - 1][0];
+                         T* out = &buffer_out[j][groups * TASK_NUM + myline - 1][0];
+
+                        // #pragma GCC pop_options
 
                         if(!last){
                             if(i == 0){
@@ -328,7 +333,6 @@ int main() {
                             }
 
                         }
-                        // mutex_unlock(my_mutex);
 
                     }
 
